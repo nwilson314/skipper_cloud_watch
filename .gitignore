@@ -1,0 +1,9 @@
+*__pycache__*/
+*.DS_Store
+
+backups/
+full_logs/
+log_stats/
+basic_logs/
+
+venv/
