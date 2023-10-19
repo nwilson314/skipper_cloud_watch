@@ -3,6 +3,7 @@ from collections import defaultdict
 import dataclasses
 from datetime import datetime, timedelta
 from enum import Enum
+import time
 
 import boto3
 from botocore import config
@@ -71,12 +72,56 @@ class LogStats:
     downstream_messages: list[tuple[datetime, str, MessageType]]
     api_type: ApiType
     end_to_end_latency: str
+    hotel_code: str | None = None
 
 
 def extract_time_from_log(message: str) -> str:
     message = message.strip()
     time = message.split(" ")[1][:-1]
     return time
+
+
+def extract_hotel_code_from_log(message: str) -> str:
+    # Extract the portion inside the outermost curly braces
+    brace_counter = 0
+    start_index = None
+    end_index = None
+
+    for i, char in enumerate(message):
+        if char == '{':
+            if brace_counter == 0:
+                start_index = i
+            brace_counter += 1
+        elif char == '}':
+            brace_counter -= 1
+            if brace_counter == 0:
+                end_index = i
+                break
+
+    if start_index is not None and end_index is not None:
+        content = message[start_index:end_index+1]
+    else:
+        raise ValueError(f"Mismatched curly braces for content: {message}")
+    
+    parsed_dict = ast.literal_eval(content)
+
+    hotel = parsed_dict.get('hotel', None)
+    if hotel == None:
+        # check room details
+        availRequest = parsed_dict.get('availabilityRequest', None)
+        if availRequest == None:
+            # check reservation
+            reservation = parsed_dict.get('reservationDetails', None)
+            if reservation == None:
+                return None
+            else:
+                hotel = reservation['hotel']
+        else:
+            hotel = availRequest["hotel"]
+
+    ims_hotel_id = hotel['imsHotelId']
+
+    return ims_hotel_id
 
 
 class CloudwatchLog:
@@ -132,6 +177,8 @@ class CloudwatchLog:
         slices = message.split("|")
         if len(slices) < 3:
             raise ValueError(f"Invalid Log Message: {message}")
+        if len(slices) > 3:
+            slices[2] = "|".join(slices[2:])
         
         formatted_message = self._parse_formatted_message(slices[2].strip())
 
@@ -158,14 +205,22 @@ class CloudwatchLog:
             next_token = None
             i = 0
             while first or next_token:
+                response = None
+                sleep_time = 0.1
                 if first:
                     response = self.cloudwatch_logs.filter_log_events(
                         logGroupName=source, startTime=int(start_time.timestamp() * 1000), endTime=int(end_time.timestamp() * 1000)
                     )
                 else:
-                    response = self.cloudwatch_logs.filter_log_events(
-                        logGroupName=source, startTime=int(start_time.timestamp() * 1000), endTime=int(end_time.timestamp() * 1000), nextToken=next_token
-                    )
+                    while not response:
+                        try:
+                            response = self.cloudwatch_logs.filter_log_events(
+                                logGroupName=source, startTime=int(start_time.timestamp() * 1000), endTime=int(end_time.timestamp() * 1000), nextToken=next_token
+                            )
+                        except Exception as e:
+                            time.sleep(sleep_time)
+                            sleep_time = sleep_time * 2
+                            response = None
                 for log_event in response["events"]:
                     if '"GET / HTTP/1.1" 200' in log_event.get('message'):
                         continue
@@ -196,6 +251,8 @@ class CloudwatchLog:
             for log in log_list:
                 if "Took" in log.formatted_message.message: 
                     latency = extract_time_from_log(log.formatted_message.message)
+                if "GRPC Request" in log.formatted_message.message:
+                    hotel_code = extract_hotel_code_from_log(log.formatted_message.message)
                 downstream_messages.append((log.time, log.formatted_message.service, log.message_type))
             service = ""
             api_type = ""
@@ -243,6 +300,7 @@ class CloudwatchLog:
                     downstream_messages=downstream_messages,
                     end_to_end_latency=latency,
                     api_type=api_type,
+                    hotel_code=hotel_code
                 )
                 log_stats.append(
                     log_stat
