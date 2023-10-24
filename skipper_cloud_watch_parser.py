@@ -262,6 +262,8 @@ class CloudwatchLog:
                     service = "windsurfer"
                 if "sabre" in service_:
                     service = "sabre"
+                if "oracle" in service_:
+                    service = "oracle"
                 if "GetRateCalendar" in service_:
                     api_type = "GetRateCalendar"
                 if "GetAvailability" in service_:
@@ -296,6 +298,7 @@ class CloudwatchLog:
             try:
                 log_stat = LogStats(
                     request_uuid=request_uuid,
+                    initial_time=downstream_messages[0][0],
                     service=service,
                     downstream_messages=downstream_messages,
                     end_to_end_latency=latency,

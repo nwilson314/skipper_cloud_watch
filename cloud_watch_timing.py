@@ -73,14 +73,14 @@ def write_full_log(stats: list[LogStats], name: str, header: list[str]) -> None:
 @profile
 def create_logs(cw_log: CloudwatchLog):
     start_day = 0
-    end_day = 14
+    end_day = 1
     
-    # minutes_in_day = 20
-    # minutes_increment = 20
+    minutes_in_day = 20
+    minutes_increment = 20
     # minutes_increment = 120
     # minutes_in_day = 1440
-    minutes_in_day = 720
-    minutes_increment = 60
+    # minutes_in_day = 720
+    # minutes_increment = 60
     end_date = datetime.now()
     start_date = end_date
     max_threads = 10
@@ -118,7 +118,7 @@ def create_logs(cw_log: CloudwatchLog):
         stats = cw_log.get_log_stats(logs)
         if not os.path.exists("./full_logs"):
             os.makedirs("./full_logs")
-        write_full_log(stats, f"full_log_day_{start}_to_{end}", header=["request_uuid", "hotel_code", "concierge service", "latency", "downstream service"])
+        write_full_log(stats, f"full_log_day_{start}_to_{end}", header=["request_uuid", "hotel_code", "downstream service", "concierge service" "latency", "logs"])
         
 def parse_logs():
     csv.field_size_limit(sys.maxsize)
@@ -183,7 +183,10 @@ def parse_logs():
                         cancel_reservation=EndPoint(name="cancel_reservation"),
                         modify_reservation=EndPoint(name="modify_reservation")
                     )
+                
                 hotel_codes[hotel_code].count += 1
+                if hotel_code == "USAMEBCK":
+                    print(file[i])
                 match file[i][3]:
                     case "GetRateCalendar":
                         service.rate_calendar.count += 1
@@ -590,13 +593,35 @@ def parse_logs():
                 sum(1 for e in service.modify_reservation.latency if e > 5),
                 sum(1 for e in service.modify_reservation.latency if e > 10),
             ])
-            
+
+
+def filter_logs(hotel_code: str):
+    csv.field_size_limit(sys.maxsize)
+    outfile = []
+    for file in os.listdir("./full_logs"):
+        with open(f"./full_logs/{file}", newline='') as f:
+            reader = csv.reader(f, delimiter=',')
+            file = []
+            for row in reader:
+                file.append(row)
+
+            header = file[0]
+            for i in range(1, len(file)):
+                if file[i][1] == hotel_code:
+                    outfile.append(file[i])
+    
+    with open(f'./log_stats/filtered_logs.csv', 'w') as f:
+        writer = csv.writer(f)
+        writer.writerow(header)
+        for row in outfile:
+            writer.writerow(row)
 
 
 if __name__ == "__main__":
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument('--create-logs', type=bool, help='If set to true, will create logs from cloudwatch and save to csv', default=False)
     arg_parser.add_argument('--parse-logs', type=bool, help='If set to true, will parse logs from csv files', default=False)
+    arg_parser.add_argument('--filter-logs', type=str, help='Filters the logs by the given hotel_code', default='')
     cw_log = CloudwatchLog("concierge-prod")
     start_date =  - timedelta(minutes=30)
     end_date = datetime.now()
@@ -604,3 +629,5 @@ if __name__ == "__main__":
         create_logs(cw_log)
     if arg_parser.parse_args().parse_logs:
         parse_logs()
+    if arg_parser.parse_args().filter_logs:
+        filter_logs(arg_parser.parse_args().filter_logs)
