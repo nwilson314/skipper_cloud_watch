@@ -73,14 +73,20 @@ def write_full_log(stats: list[LogStats], name: str, header: list[str]) -> None:
 @profile
 def create_logs(cw_log: CloudwatchLog):
     start_day = 0
-    end_day = 1
+    end_day = 5
     
-    minutes_in_day = 20
-    minutes_increment = 20
-    # minutes_increment = 120
+    # Short test period
+    # minutes_in_day = 20
+    # minutes_increment = 20
+
+    # Less threads
+    minutes_increment = 120
+    minutes_in_day = 720
+    
+    # More threads
     # minutes_in_day = 1440
-    # minutes_in_day = 720
     # minutes_increment = 60
+
     end_date = datetime.now()
     start_date = end_date
     max_threads = 10
